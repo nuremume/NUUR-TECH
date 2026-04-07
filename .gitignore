@@ -1,1 +1,7 @@
-/server
+server/node_modules/
+server/.env
+server/dist/
+.vercel/
+node_modules/
+dist/
+*.local
