@@ -10,28 +10,45 @@ router.post('/register', async (req, res) => {
   try {
     const { name, email, password, role } = req.body;
 
-    // Check if user exists
+    // 1. Basic Validation
+    if (!name || !email || !password) {
+      return res.status(400).json({ message: 'Please provide name, email, and password' });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ message: 'Password must be at least 6 characters long' });
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ message: 'Please provide a valid email address' });
+    }
+
+    // 2. Check if user exists
     let user = await User.findOne({ email });
     if (user) {
       return res.status(400).json({ message: 'User already exists' });
     }
 
-    // Hash password
-    const salt = await bcrypt.genSalt(10);
+    // 3. Hash password (Senior best practice: 12 rounds)
+    const salt = await bcrypt.genSalt(12);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    // Create user (students are auto-approved, instructors require admin approval)
+    // 4. Create user (students auto-approved, instructors require admin approval)
     user = new User({
       name,
       email,
       password: hashedPassword,
       role: role || 'student',
-      isApproved: role === 'student' ? true : false
+      isApproved: role === 'student' // shorthand for role === 'student' ? true : false
     });
 
     await user.save();
 
-    // Generate JWT
+    // 5. Generate JWT
+    if (!process.env.JWT_SECRET) {
+      console.error('[CRITICAL] JWT_SECRET is not defined in environment variables');
+      return res.status(500).json({ message: 'Server configuration error' });
+    }
+
     const payload = {
       user: {
         id: user.id,
@@ -42,7 +59,7 @@ router.post('/register', async (req, res) => {
 
     jwt.sign(
       payload,
-      process.env.JWT_SECRET || 'fallback_secret',
+      process.env.JWT_SECRET,
       { expiresIn: '5h' },
       (err, token) => {
         if (err) throw err;
@@ -50,8 +67,8 @@ router.post('/register', async (req, res) => {
       }
     );
   } catch (err) {
-    console.error(err.message);
-    res.status(500).send('Server error');
+    console.error(`[Auth Error] ${err.message}`);
+    res.status(500).json({ message: 'Server error during registration' });
   }
 });
 
@@ -95,8 +112,8 @@ router.post('/login', async (req, res) => {
       }
     );
   } catch (err) {
-    console.error(err.message);
-    res.status(500).send('Server error');
+    console.error(`[Login Error] ${err.message}`);
+    res.status(500).json({ message: 'Server error during login' });
   }
 });
 
