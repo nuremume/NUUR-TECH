@@ -16,8 +16,8 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
-    callback(new Error('Not allowed by CORS'));
+    // Dynamically allow any origin (especially needed since Vercel previews have dynamic URLs)
+    callback(null, true);
   },
   credentials: true
 }));
