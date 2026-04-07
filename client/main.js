@@ -1,5 +1,4 @@
-// main.js
-import { authAPI, aiAPI, progressAPI } from './api.js';
+import { authAPI, aiAPI, progressAPI, adminAPI, instructorAPI } from './api.js';
 import { initLiveRoom } from './components/live-room.js';
 
 // --- Global State --- //
@@ -139,18 +138,26 @@ els.loginForm.addEventListener('submit', async (e) => {
 
 els.regForm.addEventListener('submit', async (e) => {
   e.preventDefault();
+  const btn = e.submitter || els.regForm.querySelector('button[type="submit"]');
+  const originalText = btn.innerHTML;
+  
   const n = document.getElementById('reg-name').value;
   const eInput = document.getElementById('reg-email').value;
   const p = document.getElementById('reg-password').value;
   const r = document.getElementById('reg-role').value;
   
   try {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Creating Account...';
+    
     const data = await authAPI.register(n, eInput, p, r);
     localStorage.setItem('token', data.token);
     currentUser = data.user;
     finishAuth();
   } catch (err) {
     showToast(err.message, true);
+    btn.disabled = false;
+    btn.innerHTML = originalText;
   }
 });
 
@@ -215,7 +222,6 @@ function finishAuth() {
 checkSession();
 
 // --- Chat Integration --- //
-import { adminAPI, instructorAPI } from './api.js';
 
 function appendMessage(role, content) {
   const div = document.createElement('div');
