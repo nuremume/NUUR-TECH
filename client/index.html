@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NUUR TECH - AI Assistant</title>
+  
+  <!-- Google Fonts: Inter for clean, modern look -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- FontAwesome for Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body class="dark-theme">
+  
+  <!-- Notification Toast -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- Authentication Modal (Shown when not logged in) -->
+  <div id="auth-modal" class="modal show">
+    <div class="modal-content glass-panel">
+      <div class="brand">
+        <i class="fa-solid fa-graduation-cap"></i>
+        <h1>NUUR TECH</h1>
+        <p>Bringing Light to Technology</p>
+      </div>
+      
+      <div class="auth-tabs">
+        <button id="tab-login" class="tab active">Login</button>
+        <button id="tab-register" class="tab">Register</button>
+      </div>
+
+      <!-- Login Form -->
+      <form id="login-form" class="auth-form active">
+        <div class="input-group">
+          <i class="fa-solid fa-envelope"></i>
+          <input type="email" id="login-email" placeholder="Email Address" required>
+        </div>
+        <div class="input-group">
+          <i class="fa-solid fa-lock"></i>
+          <input type="password" id="login-password" placeholder="Password" required>
+        </div>
+        <button type="submit" class="btn-primary">Sign In</button>
+      </form>
+
+      <!-- Register Form -->
+      <form id="register-form" class="auth-form">
+        <div class="input-group">
+          <i class="fa-solid fa-user"></i>
+          <input type="text" id="reg-name" placeholder="Full Name" required>
+        </div>
+        <div class="input-group">
+          <i class="fa-solid fa-envelope"></i>
+          <input type="email" id="reg-email" placeholder="Email Address" required>
+        </div>
+        <div class="input-group">
+          <i class="fa-solid fa-lock"></i>
+          <input type="password" id="reg-password" placeholder="Password" required>
+        </div>
+        <div class="input-group select-group">
+          <i class="fa-solid fa-user-tag"></i>
+          <select id="reg-role">
+            <option value="student">Student</option>
+            <option value="instructor">Instructor</option>
+          </select>
+        </div>
+        <button type="submit" class="btn-primary">Create Account</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Main Application Wrapper (Hidden initially) -->
+  <div id="app-wrapper" class="hidden">
+    
+    <!-- Sidebar Navigation -->
+    <nav class="sidebar glass-panel">
+      <div class="sidebar-header">
+        <div class="logo">
+          <i class="fa-solid fa-graduation-cap"></i>
+          <span>NUUR TECH</span>
+        </div>
+        <button class="menu-toggle d-mobile"><i class="fa-solid fa-bars"></i></button>
+      </div>
+      
+      <ul class="nav-links">
+        <li class="active" data-view="home"><i class="fa-solid fa-house"></i> <span>Home</span></li>
+        <li data-view="chat"><i class="fa-solid fa-robot"></i> <span>AI Tutor</span></li>
+        <li data-view="courses"><i class="fa-solid fa-book"></i> <span>Courses</span></li>
+        <li data-view="quiz"><i class="fa-solid fa-list-check"></i> <span>Quizzes</span></li>
+        <li data-view="summary"><i class="fa-solid fa-file-lines"></i> <span>Summarizer</span></li>
+        <li data-view="live-room"><i class="fa-solid fa-users"></i> <span>Study Room</span></li>
+      </ul>
+      
+      <ul class="nav-links border-top" id="dynamic-nav">
+      </ul>
+      
+      <div class="user-profile">
+        <div class="avatar"><i class="fa-solid fa-user"></i></div>
+        <div class="user-info">
+          <span id="user-name-display">Welcome</span>
+          <span id="user-role-display">Guest</span>
+        </div>
+        <button id="logout-btn" title="Logout"><i class="fa-solid fa-right-from-bracket"></i></button>
+      </div>
+    </nav>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      
+      <!-- View: Home (Landing) -->
+      <section id="view-home" class="view active">
+        <div class="hero">
+          <h1>Learn Faster with <br>AI-Powered Excellence</h1>
+          <p>Join NUUR TECH, the premium learning platform where artificial intelligence meets human potential to create a brighter future in tech.</p>
+          <div class="hero-btns">
+            <button class="btn-primary" id="start-learning-btn">Start Learning Now</button>
+            <button class="btn-glass">Explore Courses</button>
+          </div>
+        </div>
+
+        <div class="features-grid">
+          <div class="feature-card glass-panel">
+            <i class="fa-solid fa-brain"></i>
+            <h3>Adaptive AI Tutoring</h3>
+            <p>Our AI understands your learning pace and explains complex tech concepts in a way you can easily grasp.</p>
+          </div>
+          <div class="feature-card glass-panel">
+            <i class="fa-solid fa-laptop-code"></i>
+            <h3>Interactive Courses</h3>
+            <p>Hands-on projects and interactive lessons designed by industry experts to get you job-ready.</p>
+          </div>
+          <div class="feature-card glass-panel">
+            <i class="fa-solid fa-users"></i>
+            <h3>Live Study Groups</h3>
+            <p>Never study alone. Connect with peers in our live study rooms for collaborative learning sessions.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- View: Chat -->
+      <section id="view-chat" class="view hidden">
+        <header class="view-header glass-panel">
+          <div>
+            <h2><i class="fa-solid fa-robot"></i> Your AI Tutor</h2>
+            <p>Ask questions, get concept explanations, or discuss course materials.</p>
+          </div>
+          <div class="topic-selector">
+            <select id="chat-topic">
+              <option value="General Tutoring">General Tutoring</option>
+              <option value="JavaScript Basics">JavaScript Basics</option>
+              <option value="React Framework">React Framework</option>
+              <option value="Database Design">Database Design</option>
+            </select>
+          </div>
+        </header>
+
+        <div class="chat-container glass-panel">
+          <div id="chat-messages" class="messages-area">
+            <!-- Initial Greeting -->
+            <div class="message assistant">
+              <div class="avatar"><i class="fa-solid fa-robot"></i></div>
+              <div class="bubble">Hello! I'm your NUUR TECH AI Learning Assistant. How can I help you bring light to your technology studies today?</div>
+            </div>
+          </div>
+          
+          <div class="input-area">
+            <button id="voice-btn" class="icon-btn" title="Voice Input"><i class="fa-solid fa-microphone"></i></button>
+            <textarea id="chat-input" placeholder="Type your message here..." rows="1"></textarea>
+            <button id="send-btn" class="icon-btn primary"><i class="fa-solid fa-paper-plane"></i></button>
+          </div>
+        </div>
+      </section>
+
+      <!-- View: Courses (List) -->
+      <section id="view-courses" class="view hidden">
+        <header class="view-header glass-panel">
+          <div>
+            <h2><i class="fa-solid fa-book"></i> Available Courses</h2>
+            <p>Browse through our library of AI-enhanced technical courses.</p>
+          </div>
+        </header>
+
+        <div class="dashboard-grid" id="courses-container">
+          <!-- Course cards injected here -->
+          <div class="stat-card glass-panel gradient-1" style="cursor:pointer;" data-course-id="js-101">
+            <div class="icon"><i class="fa-brands fa-js"></i></div>
+            <div class="value" style="font-size:1.5rem">JavaScript Mastery</div>
+            <div class="label">Learn the fundamentals of JS</div>
+          </div>
+          <div class="stat-card glass-panel gradient-2" style="cursor:pointer;" data-course-id="react-201">
+            <div class="icon"><i class="fa-brands fa-react"></i></div>
+            <div class="value" style="font-size:1.5rem">Advanced React</div>
+            <div class="label">Build complex web applications</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- View: Course Viewer -->
+      <section id="view-course-viewer" class="view hidden" style="padding:0;">
+        <div class="course-layout">
+          <aside class="course-sidebar">
+            <div class="sidebar-header">
+              <h3 id="viewing-course-title">Course Title</h3>
+            </div>
+            <ul class="lesson-list" id="lesson-list">
+              <!-- Lessons injected here -->
+            </ul>
+          </aside>
+          <div class="course-content">
+            <div id="lesson-content-area">
+              <h2 id="current-lesson-title">Select a lesson to begin</h2>
+              <div id="lesson-body" class="mt-4">
+                <p>Welcome to the course. Please select a lesson from the sidebar to start your learning journey.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- View: Quiz -->
+      <section id="view-quiz" class="view hidden">
+        <header class="view-header glass-panel">
+          <div>
+            <h2><i class="fa-solid fa-list-check"></i> Practice Quizzes</h2>
+            <p>Test your knowledge with AI-generated custom quizzes.</p>
+          </div>
+        </header>
+
+        <div class="quiz-setup glass-panel">
+          <h3>Generate a New Quiz</h3>
+          <div class="form-row">
+            <div class="input-group">
+              <input type="text" id="quiz-topic-input" placeholder="E.g., Node.js Event Loop">
+            </div>
+            <div class="input-group">
+              <select id="quiz-difficulty">
+                <option value="easy">Easy</option>
+                <option value="medium" selected>Medium</option>
+                <option value="hard">Hard</option>
+              </select>
+            </div>
+            <button id="generate-quiz-btn" class="btn-primary">Generate Quiz <i class="fa-solid fa-wand-magic-sparkles"></i></button>
+          </div>
+        </div>
+
+        <div id="quiz-active-area" class="quiz-area hidden">
+          <!-- Quiz content injected here -->
+        </div>
+      </section>
+
+      <!-- View: Summarizer -->
+      <section id="view-summary" class="view hidden">
+        <header class="view-header glass-panel">
+          <div>
+            <h2><i class="fa-solid fa-file-lines"></i> Lesson Summarizer</h2>
+            <p>Paste long lesson texts or transcripts to get key concepts instantly.</p>
+          </div>
+        </header>
+
+        <div class="summarizer-grid">
+          <div class="input-panel glass-panel">
+            <h3>Lesson Content</h3>
+            <textarea id="summary-input" rows="15" placeholder="Paste lesson text, article, or transcript here..."></textarea>
+            <button id="summarize-btn" class="btn-primary w-100 mt-3">Summarize Content <i class="fa-solid fa-bolt"></i></button>
+          </div>
+          
+          <div class="output-panel glass-panel">
+            <h3>Summary & Key Concepts</h3>
+            <div id="summary-result" class="result-box empty">
+              <p class="placeholder-text">Your summary will appear here.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- SEPARATE DASHBOARDS -->
+      
+      <!-- Student Dashboard -->
+      <section id="view-student-dashboard" class="view hidden dashboard-view">
+        <header class="view-header glass-panel">
+          <div>
+            <h2><i class="fa-solid fa-user-graduate"></i> Student Dashboard</h2>
+            <p>Track your learning progress and achievements.</p>
+          </div>
+        </header>
+        <div class="dashboard-grid mt-3">
+          <div class="stat-card glass-panel gradient-1">
+            <div class="icon"><i class="fa-solid fa-star"></i></div>
+            <div class="value" id="dash-points">0</div>
+            <div class="label">Total Points</div>
+          </div>
+          <div class="stat-card glass-panel gradient-2">
+            <div class="icon"><i class="fa-solid fa-fire"></i></div>
+            <div class="value" id="dash-streak">0</div>
+            <div class="label">Day Streak</div>
+          </div>
+          <div class="stat-card glass-panel gradient-3">
+            <div class="icon"><i class="fa-solid fa-book-open"></i></div>
+            <div class="value" id="dash-lessons">0</div>
+            <div class="label">Lessons Completed</div>
+          </div>
+        </div>
+        <div class="content-grid two-cols mt-4">
+          <div class="glass-panel">
+            <h3>Recent Quizzes</h3>
+            <ul id="recent-quizzes-list" class="activity-list"></ul>
+          <!-- Admin Container -->
+          <div id="admin-container" style="display: none;">
+            <h3>Platform Management</h3>
+            <p>Admin features loading...</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Live Study Room Interface -->
+      <section id="view-live-room" class="view hidden">
+        <div class="live-room-container">
+          <header class="room-header">
+            <h2><i class="fas fa-users"></i> Live Study Room</h2>
+            <div class="room-controls">
+              <input type="text" id="input-room-id" placeholder="Enter Room ID (e.g. math-101)">
+              <button id="btn-join-room" class="btn primary-btn">Join</button>
+              <button id="btn-leave-room" class="btn danger-btn" style="display:none;">Leave</button>
+            </div>
+          </header>
+          
+          <div id="live-chat-display" class="chat-display" style="height:400px; background: rgba(0,0,0,0.1); padding: 15px; overflow-y: auto; border-radius: 8px; margin: 20px 0;">
+            <div class="system-msg" style="color:#aaa; font-style:italic;">Connect to a room to chat with peers...</div>
+          </div>
+          
+          <div class="chat-input-area">
+            <input type="text" id="input-room-msg" placeholder="Type your message to the room...">
+            <button id="btn-send-room" class="btn primary-btn"><i class="fas fa-paper-plane"></i></button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Instructor Dashboard -->
+      <section id="view-instructor-dashboard" class="view hidden dashboard-view">
+        <header class="view-header glass-panel">
+          <div>
+            <h2><i class="fa-solid fa-chalkboard-user"></i> Instructor Dashboard</h2>
+            <p>Manage your courses and view student analytics.</p>
+          </div>
+        </header>
+        <div class="glass-panel mt-3" style="padding:1.5rem">
+          <h3>Create New Course</h3>
+          <input type="text" id="course-title" placeholder="Course Title" style="margin-bottom:0.5rem" />
+          <textarea id="course-description" placeholder="Course Description" rows="2" style="margin-bottom:0.5rem"></textarea>
+          <button id="create-course-btn" class="btn-primary">Create Course</button>
+        </div>
+        <div class="glass-panel mt-4" style="padding:1rem;">
+          <h3>Student Analytics Overview</h3>
+          <table style="width:100%;text-align:left;border-collapse:collapse;margin-top:1rem;">
+            <thead>
+              <tr style="border-bottom:1px solid rgba(255,255,255,0.1)">
+                <th style="padding:0.8rem;">Student</th>
+                <th style="padding:0.8rem;">Points</th>
+                <th style="padding:0.8rem;">Weak Areas</th>
+              </tr>
+            </thead>
+            <tbody id="instructor-table-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Admin Dashboard -->
+      <section id="view-admin-dashboard" class="view hidden dashboard-view">
+        <header class="view-header glass-panel">
+          <div>
+            <h2><i class="fa-solid fa-shield-halved"></i> Admin Portal</h2>
+            <p>Platform management and instructor approvals.</p>
+          </div>
+        </header>
+        <div class="glass-panel mt-3" style="padding:1rem;">
+          <h3>User Approvals (Instructors)</h3>
+          <table style="width:100%;text-align:left;border-collapse:collapse;margin-top:1rem;">
+            <thead>
+              <tr style="border-bottom:1px solid rgba(255,255,255,0.1)">
+                <th style="padding:0.8rem;">Name (Email)</th>
+                <th style="padding:0.8rem;">Role</th>
+                <th style="padding:0.8rem;">Status</th>
+                <th style="padding:0.8rem;">Action</th>
+              </tr>
+            </thead>
+            <tbody id="admin-users-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script type="module" src="/main.js"></script>
+</body>
+</html>
