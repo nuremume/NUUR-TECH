@@ -1,5 +1,6 @@
 // main.js
 import { authAPI, aiAPI, progressAPI } from './api.js';
+import { initLiveRoom } from './components/live-room.js';
 
 // --- Global State --- //
 let currentUser = null;
@@ -82,7 +83,9 @@ function switchView(viewName) {
     setTimeout(() => targetView.classList.add('active'), 10);
   }
   
-  if (viewName === 'dashboard') loadDashboard();
+  if (viewName === 'student-dashboard' || viewName === 'instructor-dashboard' || viewName === 'admin-dashboard' || viewName === 'dashboard') {
+    loadDashboard();
+  }
 }
 
 els.navLinks.forEach(link => {
@@ -198,10 +201,13 @@ function finishAuth() {
     });
   });
 
-  // Default view after login
-  switchView('dashboard');
+  // Default view after login - route to role-specific dashboard
+  const dashView = currentUser.role === 'admin' ? 'admin-dashboard'
+    : currentUser.role === 'instructor' ? 'instructor-dashboard'
+    : 'student-dashboard';
+  switchView(dashView);
 
-  // Init Live Room
+  // Init Live Room with current user
   initLiveRoom(currentUser);
 }
 
@@ -269,15 +275,75 @@ els.voiceBtn.addEventListener('click', () => {
 
 
 els.generateQuizBtn.addEventListener('click', async () => {
-  const topic = els.quizTopicInput.value;
+  const topic = els.quizTopicInput.value.trim();
   const diff = els.quizDifficulty.value;
   if (!topic) return showToast('Please enter a topic', true);
   
   els.generateQuizBtn.textContent = 'Generating...';
   try {
     const qData = await aiAPI.quiz(topic, diff);
-    els.quizActiveArea.innerHTML = `<div class="glass-panel" style="padding:1rem;"><h3>Quiz Ready!</h3><pre>${JSON.stringify(qData, null, 2)}</pre></div>`;
+    const questions = Array.isArray(qData) ? qData : (qData.questions || []);
+    
+    if (!questions.length) {
+      showToast('No questions returned. Try a different topic.', true);
+      els.generateQuizBtn.innerHTML = 'Generate Quiz <i class="fa-solid fa-wand-magic-sparkles"></i>';
+      return;
+    }
+
+    let currentQ = 0;
+    let score = 0;
+    const answers = [];
+
+    function renderQuestion() {
+      if (currentQ >= questions.length) {
+        // Quiz completed - show score and submit to backend
+        els.quizActiveArea.innerHTML = `
+          <div class="glass-panel" style="padding:2rem;text-align:center;">
+            <h3>Quiz Complete! 🎉</h3>
+            <p style="font-size:2rem;font-weight:700;color:var(--primary);margin:1rem 0;">${score}/${questions.length}</p>
+            <button onclick="window.retryQuiz()" class="btn-primary">Try Again</button>
+          </div>`;
+        // Submit to backend
+        if (currentUser) {
+          progressAPI.submitQuiz({ topic, difficulty: diff, score, totalQuestions: questions.length, questionsAndAnswers: answers })
+            .catch(e => console.error('Quiz submit failed:', e));
+        }
+        return;
+      }
+      const q = questions[currentQ];
+      els.quizActiveArea.innerHTML = `
+        <div class="glass-panel" style="padding:1.5rem;">
+          <p style="font-size:0.85rem;color:var(--text-muted);">${currentQ + 1} / ${questions.length}</p>
+          <h3 style="margin:0.5rem 0 1.5rem;">${q.question}</h3>
+          <div id="options-area" style="display:flex;flex-direction:column;gap:0.75rem;">
+            ${q.options.map((opt, i) => `
+              <button class="btn-glass" id="opt-${i}" onclick="window.answerQ('${opt.replace(/'/g, "&#39;")}', '${q.correctAnswer.replace(/'/g, "&#39;")}', ${i})"
+                style="text-align:left;padding:1rem;">${opt}</button>`).join('')}
+          </div>
+          <div id="q-feedback" style="margin-top:1rem;"></div>
+        </div>`;
+    }
+
+    window.answerQ = function(selected, correct, idx) {
+      document.querySelectorAll('#options-area button').forEach(b => b.disabled = true);
+      const isCorrect = selected === correct;
+      if (isCorrect) score++;
+      const btn = document.getElementById(`opt-${idx}`);
+      btn.style.background = isCorrect ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)';
+      btn.style.borderColor = isCorrect ? '#10b981' : '#ef4444';
+      const q = questions[currentQ];
+      answers.push({ question: q.question, selected, correct, isCorrect });
+      document.getElementById('q-feedback').innerHTML = `
+        <p style="color:${isCorrect ? '#10b981' : '#ef4444'};">${isCorrect ? '✓ Correct!' : `✗ Correct answer: ${correct}`}</p>
+        <p style="color:var(--text-muted);font-size:0.9rem;margin-top:0.5rem;">${q.explanation || ''}</p>
+        <button class="btn-primary" onclick="window.nextQ()" style="margin-top:1rem;">Next →</button>`;
+    };
+
+    window.nextQ = function() { currentQ++; renderQuestion(); };
+    window.retryQuiz = function() { currentQ = 0; score = 0; answers.length = 0; renderQuestion(); };
+
     els.quizActiveArea.classList.remove('hidden');
+    renderQuestion();
     els.generateQuizBtn.innerHTML = 'Generate Quiz <i class="fa-solid fa-wand-magic-sparkles"></i>';
   } catch (err) {
     showToast('Failed to generate quiz', true);
@@ -301,6 +367,7 @@ els.summarizeBtn.addEventListener('click', async () => {
 
 // Dashboard Loader (Role based)
 async function loadDashboard() {
+  if (!currentUser) return; // Guard: not logged in
   try {
     if (currentUser.role === 'admin') {
       const users = await adminAPI.getUsers();
@@ -345,9 +412,11 @@ async function loadDashboard() {
       }
       
       if (currentUser.badges && currentUser.badges.length) {
-        els.badgesContainer.innerHTML = currentUser.badges.map(b => `<span class="badge" style="background:var(--grad-1);padding:0.5rem;border-radius:8px;color:white;display:inline-block;margin:0.25rem;"><i class="fa-solid fa-medal"></i> ${b}</span>`).join('');
+        const badgesEl = document.getElementById('badges-container');
+        if (badgesEl) badgesEl.innerHTML = currentUser.badges.map(b => `<span class="badge" style="background:var(--grad-1);padding:0.5rem;border-radius:8px;color:white;display:inline-block;margin:0.25rem;"><i class="fa-solid fa-medal"></i> ${b}</span>`).join('');
       } else {
-        els.badgesContainer.innerHTML = 'No badges yet.';
+        const badgesEl = document.getElementById('badges-container');
+        if (badgesEl) badgesEl.innerHTML = 'No badges yet.';
       }
     }
   } catch(e) {

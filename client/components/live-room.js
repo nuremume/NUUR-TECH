@@ -1,16 +1,19 @@
 import { io } from "socket.io-client";
 
-export function initLiveRoom() {
+export function initLiveRoom(user) {
   const container = document.getElementById('view-live-room');
   if (!container) return;
   
-  // The backend socket.io runs on port 5000 in dev
-  const socket = io("http://localhost:5000");
+  // The backend socket.io runs on port 5001 in dev
+  const SOCKET_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+    ? 'http://localhost:5001'
+    : 'https://nuur-tech-api.onrender.com';
+  const socket = io(SOCKET_URL);
 
   const roomState = {
     joined: false,
     roomId: null,
-    username: null
+    username: (user && user.name) ? user.name : 'Anonymous'
   };
 
   const joinBtn = document.getElementById('btn-join-room');
@@ -19,14 +22,6 @@ export function initLiveRoom() {
   const roomInput = document.getElementById('input-room-id');
   const msgInput = document.getElementById('input-room-msg');
   const chatDisplay = document.getElementById('live-chat-display');
-
-  // Load username from local storage (set during login)
-  try {
-    const user = JSON.parse(localStorage.getItem('user'));
-    roomState.username = user ? user.name : 'Anonymous';
-  } catch(e) {
-    roomState.username = 'Student';
-  }
 
   function appendMessage(text, sender, isSystem = false) {
     const msgDiv = document.createElement('div');
