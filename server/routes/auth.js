@@ -1,155 +1,121 @@
 const express = require('express');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const User = require('../models/User');
-
 const router = express.Router();
+const User = require('../models/User');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+const multer = require('multer');
 
-// User Registration
-router.post('/register', async (req, res) => {
+// Setup Multer for file uploads (docs & CVs)
+const storage = multer.diskStorage({
+  destination(req, file, cb) {
+    cb(null, 'uploads/');
+  },
+  filename(req, file, cb) {
+    cb(null, `${Date.now()}-${file.originalname}`);
+  }
+});
+const upload = multer({ storage });
+
+const generateToken = (id) => {
+  return jwt.sign({ id }, process.env.JWT_SECRET || 'fallback_secret_key', {
+    expiresIn: '30d',
+  });
+};
+
+// @route POST /api/auth/register-student
+router.post('/register-student', async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
+    const { fullName, username, phone, email, password, dob } = req.body;
 
-    // 1. Basic Validation
-    if (!name || !email || !password) {
-      return res.status(400).json({ message: 'Please provide name, email, and password' });
-    }
-    if (password.length < 6) {
-      return res.status(400).json({ message: 'Password must be at least 6 characters long' });
-    }
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({ message: 'Please provide a valid email address' });
+    const userExists = await User.findOne({ $or: [{ email }, { username }] });
+    if (userExists) {
+      return res.status(400).json({ message: 'User with this email or username already exists' });
     }
 
-    // 2. Check if user exists
-    let user = await User.findOne({ email });
-    if (user) {
-      return res.status(400).json({ message: 'User already exists' });
-    }
-
-    // 3. Hash password (Senior best practice: 12 rounds)
-    const salt = await bcrypt.genSalt(12);
-    const hashedPassword = await bcrypt.hash(password, salt);
-
-    // 4. Create user (students auto-approved, instructors require admin approval)
-    user = new User({
-      name,
-      email,
-      password: hashedPassword,
-      role: role || 'student',
-      isApproved: role === 'student' // shorthand for role === 'student' ? true : false
+    const user = await User.create({
+      fullName, username, phone, email, password, dob, role: 'student'
     });
 
-    await user.save();
-
-    // 5. Generate JWT
-    if (!process.env.JWT_SECRET) {
-      console.error('[CRITICAL] JWT_SECRET is not defined in environment variables');
-      return res.status(500).json({ message: 'Server configuration error' });
-    }
-
-    const payload = {
-      user: {
-        id: user.id,
+    if (user) {
+      res.status(201).json({
+        _id: user._id,
+        fullName: user.fullName,
+        username: user.username,
+        email: user.email,
+        nuurId: user.nuurId,
         role: user.role,
-        isApproved: user.isApproved
-      }
-    };
-
-    jwt.sign(
-      payload,
-      process.env.JWT_SECRET,
-      { expiresIn: '5h' },
-      (err, token) => {
-        if (err) throw err;
-        res.json({ token, user: { id: user.id, name: user.name, role: user.role, isApproved: user.isApproved } });
-      }
-    );
-  } catch (err) {
-    console.error(`[Auth Error] ${err.message}`);
-    res.status(500).json({ message: 'Server error during registration' });
+        token: generateToken(user._id)
+      });
+    } else {
+      res.status(400).json({ message: 'Invalid user data' });
+    }
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
 });
 
-// User Login
+// @route POST /api/auth/register-instructor
+router.post('/register-instructor', upload.fields([{ name: 'cvFile', maxCount: 1 }, { name: 'educationDoc', maxCount: 1 }]), async (req, res) => {
+  try {
+    const { fullName, username, phone, email, password, dob } = req.body;
+    
+    const userExists = await User.findOne({ $or: [{ email }, { username }] });
+    if (userExists) {
+      return res.status(400).json({ message: 'Instructor with this email or username already exists' });
+    }
+
+    const cvFilePath = req.files && req.files['cvFile'] ? req.files['cvFile'][0].path : '';
+    const educationDocPath = req.files && req.files['educationDoc'] ? req.files['educationDoc'][0].path : '';
+
+    const user = await User.create({
+      fullName, username, phone, email, password, dob, role: 'instructor', 
+      cvFile: cvFilePath, educationDoc: educationDocPath
+    });
+
+    if (user) {
+      res.status(201).json({
+        _id: user._id,
+        fullName: user.fullName,
+        email: user.email,
+        nuurId: user.nuurId,
+        role: user.role,
+        isApproved: user.isApproved,
+        message: 'Registration successful. Pending Admin Approval.'
+      });
+    } else {
+      res.status(400).json({ message: 'Invalid instructor data' });
+    }
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// @route POST /api/auth/login
 router.post('/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { identifier, password } = req.body; // identifier can be username, email, or phone
 
-    // Check if user exists
-    let user = await User.findOne({ email });
-    if (!user) {
-      return res.status(400).json({ message: 'Invalid Credentials' });
-    }
+    const user = await User.findOne({ 
+      $or: [{ email: identifier }, { username: identifier }, { phone: identifier }] 
+    });
 
-    // Validate password
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(400).json({ message: 'Invalid Credentials' });
-    }
-
-    if (!user.isApproved) {
-      return res.status(403).json({ message: 'Your account is pending admin approval.' });
-    }
-
-    // Generate JWT
-    const payload = {
-      user: {
-        id: user.id,
+    if (user && (await user.comparePassword(password))) {
+      res.json({
+        _id: user._id,
+        fullName: user.fullName,
+        username: user.username,
+        email: user.email,
         role: user.role,
-        isApproved: user.isApproved
-      }
-    };
-
-    jwt.sign(
-      payload,
-      process.env.JWT_SECRET || 'fallback_secret',
-      { expiresIn: '5h' },
-      (err, token) => {
-        if (err) throw err;
-        res.json({ token, user: { id: user.id, name: user.name, role: user.role, isApproved: user.isApproved } });
-      }
-    );
-  } catch (err) {
-    console.error(`[Login Error] ${err.message}`);
-    res.status(500).json({ message: 'Server error during login' });
-  }
-});
-
-// Middleware to verify token
-const authMiddleware = (req, res, next) => {
-  const token = req.header('x-auth-token');
-  if (!token) return res.status(401).json({ message: 'No token, authorization denied' });
-
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret');
-    req.user = decoded.user;
-    next();
-  } catch (err) {
-    res.status(401).json({ message: 'Token is not valid' });
-  }
-};
-
-// Strict Role-Based Access Control Middleware
-const requireRole = (roles) => {
-  return (req, res, next) => {
-    if (!req.user || !roles.includes(req.user.role)) {
-      return res.status(403).json({ message: 'Access denied: insufficient permissions' });
+        nuurId: user.nuurId,
+        isApproved: user.isApproved,
+        token: generateToken(user._id)
+      });
+    } else {
+      res.status(401).json({ message: 'Invalid credentials' });
     }
-    next();
-  };
-};
-
-// Get current user profile
-router.get('/me', authMiddleware, async (req, res) => {
-  try {
-    const user = await User.findById(req.user.id).select('-password');
-    res.json(user);
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).send('Server Error');
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
 });
 
-module.exports = { router, authMiddleware, requireRole };
+module.exports = { router };

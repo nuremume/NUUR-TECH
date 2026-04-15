@@ -2,65 +2,61 @@ require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const http = require('http');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
 
 // Middleware
-const allowedOrigins = [
-  'http://localhost:5173',
-  'https://nuur-tech.vercel.app',
-  'https://client-five-swart-28.vercel.app', // Added new deployment URL
-  process.env.FRONTEND_URL
-].filter(Boolean);
-
-app.use(cors({
-  origin: (origin, callback) => {
-    // Dynamically allow any origin (especially needed since Vercel previews have dynamic URLs)
-    callback(null, true);
-  },
-  credentials: true
-}));
+app.use(cors({ origin: '*', credentials: true })); // In production, restrict origin
 app.use(express.json());
+app.use('/uploads', express.static('uploads')); // Serve uploaded files statically
 
 // Health Check
 app.get('/health', (req, res) => res.json({ status: 'ok', time: new Date() }));
 
 // Database connection
+const { MongoMemoryServer } = require('mongodb-memory-server');
+
 async function connectDB() {
   try {
-    // If you are deploying, use process.env.MONGO_URI
-    let uri = process.env.MONGO_URI || 'mongodb://localhost:27017/nuurtech_ai';
-    await mongoose.connect(uri, { serverSelectionTimeoutMS: 5000 });
-    console.log(`\x1b[32m[DB] Connected firmly to MongoDB at ${uri}\x1b[0m`);
+    let uri = process.env.MONGO_URI;
+    if (uri && uri.includes('localhost')) {
+      const mongoServer = await MongoMemoryServer.create();
+      uri = mongoServer.getUri();
+      console.log(`[DB] Spinning up local Memory Server...`);
+    }
+    await mongoose.connect(uri);
+    console.log(`[DB] Connected to MongoDB at ${uri}`);
   } catch (err) {
-    console.error('\x1b[31m[DB] MongoDB connection error:\x1b[0m', err.message);
-    console.log('\x1b[33m\nMake sure your MongoDB instance is actively running! (e.g. `mongod` or `net start MongoDB`)\x1b[0m');
+    console.error('[DB] Connection error:', err.message);
   }
 }
-
 connectDB();
 
 // Routes
-app.use('/api/auth', require('./routes/auth').router);
-app.use('/api/ai', require('./routes/ai'));
-app.use('/api/progress', require('./routes/progress'));
-app.use('/api/admin', require('./routes/admin'));
-app.use('/api/instructor', require('./routes/instructor'));
+const authRoutes = require('./routes/auth').router;
+const courseRoutes = require('./routes/course');
+const adminRoutes = require('./routes/admin');
+
+app.use('/api/auth', authRoutes);
+app.use('/api/courses', courseRoutes);
+app.use('/api/admin', adminRoutes);
 
 app.get('/', (req, res) => {
-  res.send('NUUR TECH AI Learning Assistant API is running');
+  res.send('NUUR TECH Backend API is running');
 });
-
-const http = require('http');
-const { initSocket } = require('./socket');
 
 const server = http.createServer(app);
 
-// Attach Socket.io to the HTTP server
-initSocket(server);
+// Simple init Socket for future expansion
+const { Server } = require("socket.io");
+const io = new Server(server, { cors: { origin: "*", methods: ["GET", "POST"] } });
+io.on("connection", (socket) => {
+  console.log("Client connected:", socket.id);
+});
 
 // Start server
 server.listen(PORT, () => {
-  console.log(`Server and WebSockets running on http://localhost:${PORT}`);
+  console.log(`Server running on http://localhost:${PORT}`);
 });

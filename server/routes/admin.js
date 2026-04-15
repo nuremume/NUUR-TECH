@@ -1,41 +1,31 @@
 const express = require('express');
-const { authMiddleware, requireRole } = require('./auth');
-const User = require('../models/User');
-
 const router = express.Router();
+const User = require('../models/User');
+const { protect, adminOnly } = require('../middleware/authMiddleware');
 
-router.use(authMiddleware);
-router.use(requireRole(['admin'])); // Protect entire file
-
-// Get all users
-router.get('/users', async (req, res) => {
+// @route GET /api/admin/users
+router.get('/users', protect, adminOnly, async (req, res) => {
   try {
-    const users = await User.find().select('-password');
+    const users = await User.find({}).select('-password');
     res.json(users);
-  } catch (err) {
-    res.status(500).json({ message: 'Server Error' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
 });
 
-// Approve/Reject User
-router.put('/users/:id/approve', async (req, res) => {
+// @route PUT /api/admin/instructors/:id/approve
+router.put('/instructors/:id/approve', protect, adminOnly, async (req, res) => {
   try {
-    const { isApproved } = req.body;
     const user = await User.findById(req.params.id);
-    if (!user) return res.status(404).json({ message: 'User not found' });
-    
-    user.isApproved = isApproved;
-    await user.save();
-    
-    // Only send an email if they were just approved and they are an instructor
-    if (isApproved === true && user.role === 'instructor') {
-      const emailService = require('../services/emailService');
-      await emailService.sendAccountApprovalEmail(user.email, user.name);
+    if (user && user.role === 'instructor') {
+      user.isApproved = true;
+      await user.save();
+      res.json({ message: 'Instructor approved successfully', user });
+    } else {
+      res.status(404).json({ message: 'Instructor not found' });
     }
-    
-    res.json({ message: `User approval set to ${isApproved}`, user });
-  } catch (err) {
-    res.status(500).json({ message: 'Server Error' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
 });
 

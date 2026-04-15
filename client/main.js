@@ -1,519 +1,301 @@
-import { authAPI, aiAPI, progressAPI, adminAPI, instructorAPI } from './api.js';
-import { initLiveRoom } from './components/live-room.js';
+const API_URL = 'http://localhost:5002/api';
 
-// --- Global State --- //
-let currentUser = null;
-const state = {
-  chatHistoryId: null,
-  isRecording: false
-};
+// --- State ---
+let currentUser = JSON.parse(localStorage.getItem('nuurUser') || 'null');
+let currentRoleRegistration = 'student';
 
-// --- DOM Elements --- //
-const els = {
-  authModal: document.getElementById('auth-modal'),
-  appWrapper: document.getElementById('app-wrapper'),
-  tabs: document.querySelectorAll('.tab'),
-  loginForm: document.getElementById('login-form'),
-  regForm: document.getElementById('register-form'),
-  navLinks: document.querySelectorAll('.nav-links li'),
-  views: document.querySelectorAll('.view'),
-  userNameDisplay: document.getElementById('user-name-display'),
-  userRoleDisplay: document.getElementById('user-role-display'),
-  logoutBtn: document.getElementById('logout-btn'),
+// --- Initialization ---
+document.addEventListener('DOMContentLoaded', () => {
+  updateNavUI();
   
-  // Chat
-  chatMessages: document.getElementById('chat-messages'),
-  chatInput: document.getElementById('chat-input'),
-  sendBtn: document.getElementById('send-btn'),
-  voiceBtn: document.getElementById('voice-btn'),
-  chatTopic: document.getElementById('chat-topic'),
-  
-  // Quiz
-  generateQuizBtn: document.getElementById('generate-quiz-btn'),
-  quizTopicInput: document.getElementById('quiz-topic-input'),
-  quizDifficulty: document.getElementById('quiz-difficulty'),
-  quizActiveArea: document.getElementById('quiz-active-area'),
-  
-  // Summary
-  summaryInput: document.getElementById('summary-input'),
-  summarizeBtn: document.getElementById('summarize-btn'),
-  summaryResult: document.getElementById('summary-result'),
-  
-  // Dashboard
-  dashPoints: document.getElementById('dash-points'),
-  dashStreak: document.getElementById('dash-streak'),
-  dashLessons: document.getElementById('dash-lessons'),
-  recentQuizzesList: document.getElementById('recent-quizzes-list'),
-  badgesContainer: document.getElementById('badges-container'),
-  
-  // Toast
-  toastContainer: document.getElementById('toast-container')
-};
-
-// --- Utilities --- //
-function showToast(message, isError = false) {
-  const t = document.createElement('div');
-  t.style.padding = '1rem';
-  t.style.background = isError ? '#ef4444' : '#10b981';
-  t.style.color = 'white';
-  t.style.borderRadius = '8px';
-  t.style.marginBottom = '0.5rem';
-  t.style.boxShadow = '0 4px 6px rgba(0,0,0,0.1)';
-  t.textContent = message;
-  
-  els.toastContainer.appendChild(t);
-  setTimeout(() => t.remove(), 3000);
-}
-
-// --- View Navigation --- //
-function switchView(viewName) {
-  els.navLinks.forEach(l => l.classList.remove('active'));
-  const activeLink = Array.from(els.navLinks).find(l => l.dataset.view === viewName);
-  if (activeLink) activeLink.classList.add('active');
-  
-  els.views.forEach(v => {
-    v.classList.remove('active');
-    v.classList.add('hidden');
-  });
-  
-  const targetView = document.getElementById(`view-${viewName}`);
-  if (targetView) {
-    targetView.classList.remove('hidden');
-    setTimeout(() => targetView.classList.add('active'), 10);
-  }
-  
-  if (viewName === 'student-dashboard' || viewName === 'instructor-dashboard' || viewName === 'admin-dashboard' || viewName === 'dashboard') {
-    loadDashboard();
-  }
-}
-
-els.navLinks.forEach(link => {
-  link.addEventListener('click', () => {
-    switchView(link.dataset.view);
-  });
-});
-
-// --- Auth Handling --- //
-document.getElementById('tab-login').addEventListener('click', () => {
-  document.getElementById('tab-login').classList.add('active');
-  document.getElementById('tab-register').classList.remove('active');
-  document.getElementById('login-form').classList.add('active');
-  document.getElementById('register-form').classList.remove('active');
-});
-
-document.getElementById('tab-register').addEventListener('click', () => {
-  document.getElementById('tab-register').classList.add('active');
-  document.getElementById('tab-login').classList.remove('active');
-  document.getElementById('register-form').classList.add('active');
-  document.getElementById('login-form').classList.remove('active');
-});
-
-async function checkSession() {
-  try {
-    const user = await authAPI.me();
-    currentUser = user;
-    finishAuth();
-  } catch (err) {
-    // If not logged in, show the Home page as Guest
-    switchView('home');
-    els.appWrapper.classList.remove('hidden');
-    els.authModal.classList.add('hidden');
-  }
-}
-
-els.loginForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const eInput = document.getElementById('login-email').value;
-  const pInput = document.getElementById('login-password').value;
-  
-  try {
-    const data = await authAPI.login(eInput, pInput);
-    localStorage.setItem('token', data.token);
-    currentUser = data.user;
-    finishAuth();
-  } catch (err) {
-    showToast(err.message, true);
-  }
-});
-
-els.regForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const btn = e.submitter || els.regForm.querySelector('button[type="submit"]');
-  const originalText = btn.innerHTML;
-  
-  const n = document.getElementById('reg-name').value;
-  const eInput = document.getElementById('reg-email').value;
-  const p = document.getElementById('reg-password').value;
-  const r = document.getElementById('reg-role').value;
-  
-  try {
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Creating Account...';
-    
-    const data = await authAPI.register(n, eInput, p, r);
-    localStorage.setItem('token', data.token);
-    currentUser = data.user;
-    finishAuth();
-  } catch (err) {
-    showToast(err.message, true);
-    btn.disabled = false;
-    btn.innerHTML = originalText;
-  }
-});
-
-els.logoutBtn.addEventListener('click', () => {
-  localStorage.removeItem('token');
-  currentUser = null;
-  window.location.reload();
-});
-
-function finishAuth() {
-  els.authModal.classList.remove('show');
-  els.authModal.classList.add('hidden');
-  els.appWrapper.classList.remove('hidden');
-  
-  els.userNameDisplay.textContent = currentUser.name;
-  els.userRoleDisplay.textContent = currentUser.role.charAt(0).toUpperCase() + currentUser.role.slice(1);
-  
-  // Inject Dynamic Nav
-  const navContainer = document.getElementById('dynamic-nav');
-  if (currentUser.role === 'admin') {
-    navContainer.innerHTML = `<li data-view="admin-dashboard"><i class="fa-solid fa-shield-halved"></i> <span>Admin Portal</span></li>`;
-  } else if (currentUser.role === 'instructor') {
-    navContainer.innerHTML = `<li data-view="instructor-dashboard"><i class="fa-solid fa-chalkboard-user"></i> <span>Instructor Dashboard</span></li>`;
+  if (currentUser) {
+    navigate('dashboard');
+    populateDashboard();
   } else {
-    navContainer.innerHTML = `<li data-view="student-dashboard"><i class="fa-solid fa-user-graduate"></i> <span>Student Dashboard</span></li>`;
-  }
-  
-  // Re-bind dynamic nav links
-  const dynamicLinks = navContainer.querySelectorAll('li');
-  dynamicLinks.forEach(link => {
-    link.addEventListener('click', () => {
-      els.navLinks.forEach(l => l.classList.remove('active'));
-      dynamicLinks.forEach(l => l.classList.remove('active'));
-      link.classList.add('active');
-      
-      els.views.forEach(v => {
-        v.classList.remove('active');
-        v.classList.add('hidden');
-      });
-      
-      const targetView = document.getElementById(`view-${link.dataset.view}`);
-      if (targetView) {
-        targetView.classList.remove('hidden');
-        setTimeout(() => targetView.classList.add('active'), 10);
-      }
-      
-      loadDashboard();
-    });
-  });
-
-  // Default view after login - route to role-specific dashboard
-  const dashView = currentUser.role === 'admin' ? 'admin-dashboard'
-    : currentUser.role === 'instructor' ? 'instructor-dashboard'
-    : 'student-dashboard';
-  switchView(dashView);
-
-  // Init Live Room with current user
-  initLiveRoom(currentUser);
-}
-
-// Init
-checkSession();
-
-// --- Chat Integration --- //
-
-function appendMessage(role, content) {
-  const div = document.createElement('div');
-  div.className = `message ${role}`;
-  const icon = role === 'user' ? 'fa-user' : 'fa-robot';
-  div.innerHTML = `
-    <div class="avatar"><i class="fa-solid ${icon}"></i></div>
-    <div class="bubble">${content}</div>
-  `;
-  els.chatMessages.appendChild(div);
-  els.chatMessages.scrollTop = els.chatMessages.scrollHeight;
-}
-
-async function handleChatSubmit() {
-  const val = els.chatInput.value.trim();
-  if (!val) return;
-  
-  appendMessage('user', val);
-  els.chatInput.value = '';
-  
-  try {
-    const topic = els.chatTopic.value;
-    const res = await aiAPI.chat(val, topic);
-    appendMessage('assistant', res.response);
-  } catch (err) {
-    showToast('Failed to get response', true);
-  }
-}
-
-els.sendBtn.addEventListener('click', handleChatSubmit);
-els.chatInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    handleChatSubmit();
+    navigate('home');
   }
 });
 
-// --- Speech API --- //
-const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-let recognition;
-if (SpeechRecognition) {
-  recognition = new SpeechRecognition();
-  recognition.lang = 'en-US';
-  recognition.onstart = () => { state.isRecording = true; els.voiceBtn.classList.add('recording'); };
-  recognition.onresult = (e) => { els.chatInput.value += e.results[0][0].transcript; handleChatSubmit(); };
-  recognition.onerror = () => stopRecording();
-  recognition.onend = () => stopRecording();
-} else {
-  els.voiceBtn.style.display = 'none';
+// --- SPA Navigation ---
+function navigate(viewId) {
+  document.querySelectorAll('.view-section').forEach(sec => sec.classList.remove('active'));
+  document.getElementById(`view-${viewId}`).classList.add('active');
 }
 
-function stopRecording() { state.isRecording = false; els.voiceBtn.classList.remove('recording'); }
-els.voiceBtn.addEventListener('click', () => {
-  if (!recognition) return;
-  state.isRecording ? recognition.stop() : recognition.start();
-});
+function updateNavUI() {
+  const authActions = document.getElementById('auth-actions');
+  const userActions = document.getElementById('user-actions');
+  const navDash = document.getElementById('nav-dashboard');
+  const navCourses = document.getElementById('nav-courses');
+  const userDisplay = document.getElementById('user-display');
 
-
-els.generateQuizBtn.addEventListener('click', async () => {
-  const topic = els.quizTopicInput.value.trim();
-  const diff = els.quizDifficulty.value;
-  if (!topic) return showToast('Please enter a topic', true);
-  
-  els.generateQuizBtn.textContent = 'Generating...';
-  try {
-    const qData = await aiAPI.quiz(topic, diff);
-    const questions = Array.isArray(qData) ? qData : (qData.questions || []);
+  if (currentUser) {
+    authActions.classList.add('hidden');
+    userActions.classList.remove('hidden');
+    navDash.classList.remove('hidden');
+    navCourses.classList.remove('hidden');
+    userDisplay.innerText = `[${currentUser.nuurId}] ${currentUser.username}`;
     
-    if (!questions.length) {
-      showToast('No questions returned. Try a different topic.', true);
-      els.generateQuizBtn.innerHTML = 'Generate Quiz <i class="fa-solid fa-wand-magic-sparkles"></i>';
+    // Admin specific nav
+    if (currentUser.role === 'admin') navDash.innerText = 'Admin Panel';
+  } else {
+    authActions.classList.remove('hidden');
+    userActions.classList.add('hidden');
+    navDash.classList.add('hidden');
+    navCourses.classList.add('hidden');
+  }
+}
+
+function selectDashboard() {
+  if (!currentUser) return navigate('login');
+  if (currentUser.role === 'admin') navigate('admin');
+  else navigate('dashboard');
+}
+
+// Ensure Dashboard nav triggers correct dashboard
+document.getElementById('nav-dashboard').onclick = selectDashboard;
+
+// --- Notification System ---
+function showToast(message, type = 'success') {
+  const container = document.getElementById('notification-area');
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.innerText = message;
+  container.appendChild(toast);
+  setTimeout(() => toast.remove(), 4000);
+}
+
+// --- Auth System ---
+function setRegistrationRole(role) {
+  currentRoleRegistration = role;
+  if (role === 'instructor') {
+    document.getElementById('instructor-fields').classList.remove('hidden');
+    document.getElementById('toggle-instructor').className = 'btn-neon';
+    document.getElementById('toggle-student').className = 'btn-purple';
+    document.getElementById('toggle-student').style.background = 'transparent';
+    document.getElementById('toggle-instructor').style.background = 'var(--neon-cyan)';
+    document.getElementById('toggle-instructor').style.color = '#000';
+  } else {
+    document.getElementById('instructor-fields').classList.add('hidden');
+    document.getElementById('toggle-student').className = 'btn-neon';
+    document.getElementById('toggle-instructor').className = 'btn-purple';
+    document.getElementById('toggle-instructor').style.background = 'transparent';
+    document.getElementById('toggle-student').style.background = 'var(--neon-cyan)';
+    document.getElementById('toggle-student').style.color = '#000';
+  }
+}
+
+document.getElementById('register-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  
+  const password = document.getElementById('reg-password').value;
+  const confirm = document.getElementById('reg-confirm').value;
+  if (password !== confirm) return showToast('Passwords do not match', 'error');
+
+  const endpoint = currentRoleRegistration === 'instructor' ? '/auth/register-instructor' : '/auth/register-student';
+  
+  try {
+    let response;
+    
+    if (currentRoleRegistration === 'instructor') {
+      const formData = new FormData();
+      formData.append('fullName', document.getElementById('reg-name').value);
+      formData.append('username', document.getElementById('reg-username').value);
+      formData.append('email', document.getElementById('reg-email').value);
+      formData.append('phone', document.getElementById('reg-phone').value);
+      formData.append('dob', document.getElementById('reg-dob').value);
+      formData.append('password', password);
+      formData.append('cvFile', document.getElementById('reg-cv').files[0]);
+      formData.append('educationDoc', document.getElementById('reg-education').files[0]);
+
+      response = await fetch(`${API_URL}${endpoint}`, {
+        method: 'POST',
+        body: formData
+      });
+    } else {
+      response = await fetch(`${API_URL}${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fullName: document.getElementById('reg-name').value,
+          username: document.getElementById('reg-username').value,
+          email: document.getElementById('reg-email').value,
+          phone: document.getElementById('reg-phone').value,
+          dob: document.getElementById('reg-dob').value,
+          password: password,
+        })
+      });
+    }
+
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Registration failed');
+
+    showToast('Registration successful! Accessing Grid...');
+    
+    if (currentRoleRegistration === 'student') {
+      loginUser(data); 
+    } else {
+      showToast('Instructors must await Admin approval before accessing dashboard.', 'success');
+      setTimeout(() => navigate('login'), 2000);
+    }
+    
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+});
+
+document.getElementById('login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    const identifier = document.getElementById('login-identifier').value;
+    const password = document.getElementById('login-password').value;
+
+    const response = await fetch(`${API_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifier, password })
+    });
+
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Login failed');
+
+    showToast('Login successful!');
+    loginUser(data);
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+});
+
+function loginUser(userData) {
+  currentUser = userData;
+  localStorage.setItem('nuurUser', JSON.stringify(userData));
+  updateNavUI();
+  selectDashboard();
+  populateDashboard();
+}
+
+function logout() {
+  currentUser = null;
+  localStorage.removeItem('nuurUser');
+  updateNavUI();
+  navigate('home');
+  showToast('Logged out securely.');
+}
+
+// --- Dashboards Population ---
+function populateDashboard() {
+  const dashContent = document.getElementById('dashboard-content');
+  const greeting = document.getElementById('dashboard-welcome');
+  
+  if (!currentUser) return;
+  dashContent.innerHTML = '';
+  
+  greeting.innerText = `Welcome back, ${currentUser.fullName}. Connection Secure.`;
+
+  if (currentUser.role === 'student') {
+    dashContent.innerHTML = `
+      <div class="card">
+        <h3>Enrolled Courses</h3>
+        <p>You are active in 0 modules.</p>
+        <button class="btn-neon mt-2" onclick="navigate('courses')">View Catalog</button>
+      </div>
+      <div class="card">
+        <h3>Certificates</h3>
+        <p>0 Accreditations Earned.</p>
+      </div>
+    `;
+  } else if (currentUser.role === 'instructor') {
+    if (!currentUser.isApproved) {
+      dashContent.innerHTML = `
+        <div class="card" style="border-color: #ffcc00">
+          <h3 style="color: #ffcc00">Pending Approval</h3>
+          <p>Your instructor account is currently being reviewed by an Admin. Course creation is disabled.</p>
+        </div>
+      `;
+    } else {
+      dashContent.innerHTML = `
+        <div class="card">
+          <h3>My Modules</h3>
+          <p>You have published 0 courses.</p>
+          <button class="btn-neon mt-2">Initialize New Course</button>
+        </div>
+        <div class="card">
+          <h3>Student Analytics</h3>
+          <p>Data streams offline.</p>
+        </div>
+      `;
+    }
+  }
+}
+
+// --- Admin Controls ---
+async function fetchAdminUsers() {
+  if (!currentUser || currentUser.role !== 'admin') return;
+  
+  try {
+    const res = await fetch(`${API_URL}/admin/users`, {
+      headers: { 'Authorization': `Bearer ${currentUser.token}` }
+    });
+    const users = await res.json();
+    
+    let html = '';
+    users.forEach(u => {
+      html += `
+      <div class="card">
+        <h3>${u.fullName}</h3>
+        <p>ID: ${u.nuurId || 'N/A'}</p>
+        <p>Role: ${u.role}</p>
+        <p>Email: ${u.email}</p>
+      </div>`;
+    });
+    
+    document.getElementById('admin-data-grid').innerHTML = html;
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+async function fetchPendingInstructors() {
+  if (!currentUser || currentUser.role !== 'admin') return;
+  
+  try {
+    const res = await fetch(`${API_URL}/admin/users`, {
+      headers: { 'Authorization': `Bearer ${currentUser.token}` }
+    });
+    let users = await res.json();
+    users = users.filter(u => u.role === 'instructor' && !u.isApproved);
+    
+    if (users.length === 0) {
+      document.getElementById('admin-data-grid').innerHTML = '<p>No pending approvals.</p>';
       return;
     }
 
-    let currentQ = 0;
-    let score = 0;
-    const answers = [];
-
-    function renderQuestion() {
-      if (currentQ >= questions.length) {
-        // Quiz completed - show score and submit to backend
-        els.quizActiveArea.innerHTML = `
-          <div class="glass-panel" style="padding:2rem;text-align:center;">
-            <h3>Quiz Complete! 🎉</h3>
-            <p style="font-size:2rem;font-weight:700;color:var(--primary);margin:1rem 0;">${score}/${questions.length}</p>
-            <button onclick="window.retryQuiz()" class="btn-primary">Try Again</button>
-          </div>`;
-        // Submit to backend
-        if (currentUser) {
-          progressAPI.submitQuiz({ topic, difficulty: diff, score, totalQuestions: questions.length, questionsAndAnswers: answers })
-            .catch(e => console.error('Quiz submit failed:', e));
-        }
-        return;
-      }
-      const q = questions[currentQ];
-      els.quizActiveArea.innerHTML = `
-        <div class="glass-panel" style="padding:1.5rem;">
-          <p style="font-size:0.85rem;color:var(--text-muted);">${currentQ + 1} / ${questions.length}</p>
-          <h3 style="margin:0.5rem 0 1.5rem;">${q.question}</h3>
-          <div id="options-area" style="display:flex;flex-direction:column;gap:0.75rem;">
-            ${q.options.map((opt, i) => `
-              <button class="btn-glass" id="opt-${i}" onclick="window.answerQ('${opt.replace(/'/g, "&#39;")}', '${q.correctAnswer.replace(/'/g, "&#39;")}', ${i})"
-                style="text-align:left;padding:1rem;">${opt}</button>`).join('')}
-          </div>
-          <div id="q-feedback" style="margin-top:1rem;"></div>
-        </div>`;
-    }
-
-    window.answerQ = function(selected, correct, idx) {
-      document.querySelectorAll('#options-area button').forEach(b => b.disabled = true);
-      const isCorrect = selected === correct;
-      if (isCorrect) score++;
-      const btn = document.getElementById(`opt-${idx}`);
-      btn.style.background = isCorrect ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)';
-      btn.style.borderColor = isCorrect ? '#10b981' : '#ef4444';
-      const q = questions[currentQ];
-      answers.push({ question: q.question, selected, correct, isCorrect });
-      document.getElementById('q-feedback').innerHTML = `
-        <p style="color:${isCorrect ? '#10b981' : '#ef4444'};">${isCorrect ? '✓ Correct!' : `✗ Correct answer: ${correct}`}</p>
-        <p style="color:var(--text-muted);font-size:0.9rem;margin-top:0.5rem;">${q.explanation || ''}</p>
-        <button class="btn-primary" onclick="window.nextQ()" style="margin-top:1rem;">Next →</button>`;
-    };
-
-    window.nextQ = function() { currentQ++; renderQuestion(); };
-    window.retryQuiz = function() { currentQ = 0; score = 0; answers.length = 0; renderQuestion(); };
-
-    els.quizActiveArea.classList.remove('hidden');
-    renderQuestion();
-    els.generateQuizBtn.innerHTML = 'Generate Quiz <i class="fa-solid fa-wand-magic-sparkles"></i>';
-  } catch (err) {
-    showToast('Failed to generate quiz', true);
-    els.generateQuizBtn.innerHTML = 'Generate Quiz <i class="fa-solid fa-wand-magic-sparkles"></i>';
-  }
-});
-
-els.summarizeBtn.addEventListener('click', async () => {
-  const text = els.summaryInput.value;
-  if (!text) return;
-  els.summarizeBtn.textContent = 'Summarizing...';
-  try {
-    const res = await aiAPI.summarize(text);
-    els.summaryResult.innerHTML = `<div style="white-space:pre-wrap;">${res.summary}</div>`;
-    els.summaryResult.classList.remove('empty');
-  } catch(e) {
-    showToast('Failed to summarize', true);
-  }
-  els.summarizeBtn.innerHTML = 'Summarize Content <i class="fa-solid fa-bolt"></i>';
-});
-
-// Dashboard Loader (Role based)
-async function loadDashboard() {
-  if (!currentUser) return; // Guard: not logged in
-  try {
-    if (currentUser.role === 'admin') {
-      const users = await adminAPI.getUsers();
-      const tbody = document.getElementById('admin-users-body');
-      tbody.innerHTML = users.map(u => `
-        <tr style="border-bottom:1px solid rgba(255,255,255,0.05)">
-          <td style="padding:0.8rem;">${u.name}<br><small style="color:var(--text-muted)">${u.email}</small></td>
-          <td style="padding:0.8rem;">${u.role}</td>
-          <td style="padding:0.8rem;"><span style="color:${u.isApproved ? 'var(--primary)' : 'var(--secondary)'}">${u.isApproved ? 'Approved' : 'Pending'}</span></td>
-          <td style="padding:0.8rem;">
-             ${!u.isApproved && u.role === 'instructor' ? `<button onclick="window.approveUser('${u._id}')" style="background:var(--grad-1);border:none;padding:5px 10px;border-radius:4px;color:white;cursor:pointer;">Approve</button>` : 'N/A'}
-          </td>
-        </tr>
-      `).join('');
-    } 
-    else if (currentUser.role === 'instructor') {
-      const { students, allProgress } = await progressAPI.getAll();
-      const tbody = document.getElementById('instructor-table-body');
-      
-      tbody.innerHTML = students.map(s => {
-        const prog = allProgress.find(p => p.userId && p.userId._id === s._id) || { weakAreas: [] };
-        return `
-          <tr style="border-bottom:1px solid rgba(255,255,255,0.05)">
-            <td style="padding:0.8rem;">${s.name}</td>
-            <td style="padding:0.8rem; color:var(--primary); font-weight:bold;">${s.points || 0}</td>
-            <td style="padding:0.8rem;">${(prog.weakAreas && prog.weakAreas.length) ? prog.weakAreas.join(', ') : 'N/A'}</td>
-          </tr>
-        `;
-      }).join('');
-    } 
-    else {
-      // Student
-      const { progress, recentQuizzes } = await progressAPI.get();
-      els.dashPoints.textContent = currentUser.points || 0;
-      els.dashStreak.textContent = progress.studyStreakDays || 0;
-      els.dashLessons.textContent = progress.completedLessons.length || 0;
-      
-      if (recentQuizzes && recentQuizzes.length) {
-        els.recentQuizzesList.innerHTML = recentQuizzes.map(q => `<li><strong>${q.topic}</strong> - ${q.score}/${q.totalQuestions}</li>`).join('');
-      } else {
-        els.recentQuizzesList.innerHTML = '<li class="empty-list">No quizzes taken yet.</li>';
-      }
-      
-      if (currentUser.badges && currentUser.badges.length) {
-        const badgesEl = document.getElementById('badges-container');
-        if (badgesEl) badgesEl.innerHTML = currentUser.badges.map(b => `<span class="badge" style="background:var(--grad-1);padding:0.5rem;border-radius:8px;color:white;display:inline-block;margin:0.25rem;"><i class="fa-solid fa-medal"></i> ${b}</span>`).join('');
-      } else {
-        const badgesEl = document.getElementById('badges-container');
-        if (badgesEl) badgesEl.innerHTML = 'No badges yet.';
-      }
-    }
-  } catch(e) {
-    console.error(e);
-    showToast('Failed to load dashboard data', true);
-  }
-}
-
-// Global hook for inline HTML onclick buttons
-window.approveUser = async function(id) {
-  try {
-    await adminAPI.approveUser(id, true);
-    showToast('Instructor approved!');
-    loadDashboard();
-  } catch(e) {
-    showToast('Error approving user', true);
-  }
-};
-
-document.getElementById('create-course-btn')?.addEventListener('click', async () => {
-    const title = document.getElementById('course-title').value;
-    const desc = document.getElementById('course-description').value;
-    if(!title || !desc) return showToast('Please fill out course info', true);
-    try {
-        await instructorAPI.createCourse({ title, description: desc });
-        showToast('Course Created Successfully!');
-        document.getElementById('course-title').value = '';
-        document.getElementById('course-description').value = '';
-    } catch(e) {
-        showToast('Failed to create course', true);
-    }
-});
-
-// --- Course Viewer Logic --- //
-function setupCourseListeners() {
-  const courseItems = document.querySelectorAll('[data-course-id]');
-  courseItems.forEach(item => {
-    item.addEventListener('click', () => {
-      const courseId = item.dataset.courseId;
-      const courseTitle = item.querySelector('.value').textContent;
-      openCourse(courseId, courseTitle);
+    let html = '';
+    users.forEach(u => {
+      html += `
+      <div class="card">
+        <h3>${u.fullName}</h3>
+        <p>Email: ${u.email}</p>
+        <button class="btn-neon mt-2" onclick="approveInstructor('${u._id}')">Approve Access</button>
+      </div>`;
     });
-  });
+    
+    document.getElementById('admin-data-grid').innerHTML = html;
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
 }
 
-function openCourse(id, title) {
-  const titleEl = document.getElementById('viewing-course-title');
-  if (titleEl) titleEl.textContent = title;
-  const lessonList = document.getElementById('lesson-list');
-  if (lessonList) {
-    lessonList.innerHTML = `
-      <li class="lesson-item active" onclick="loadLesson('Introduction to ${title}')"><i class="fa-solid fa-play"></i> <span>1. Introduction</span></li>
-      <li class="lesson-item" onclick="loadLesson('Core Concepts')"><i class="fa-solid fa-book"></i> <span>2. Core Concepts</span></li>
-      <li class="lesson-item" onclick="loadLesson('Practical Exercise')"><i class="fa-solid fa-code"></i> <span>3. Practical Exercise</span></li>
-      <li class="lesson-item" onclick="loadLesson('Summary')"><i class="fa-solid fa-check"></i> <span>4. Summary</span></li>
-    `;
+async function approveInstructor(id) {
+  try {
+    const res = await fetch(`${API_URL}/admin/instructors/${id}/approve`, {
+      method: 'PUT',
+      headers: { 'Authorization': `Bearer ${currentUser.token}` }
+    });
+    if (!res.ok) throw new Error('Approval failed');
+    showToast('Instructor Access Granted.');
+    fetchPendingInstructors();
+  } catch (err) {
+    showToast(err.message, 'error');
   }
-  switchView('course-viewer');
 }
-
-window.loadLesson = function(title) {
-  const lessonTitleEl = document.getElementById('current-lesson-title');
-  if (lessonTitleEl) lessonTitleEl.textContent = title;
-  const lessonBodyEl = document.getElementById('lesson-body');
-  if (lessonBodyEl) {
-    lessonBodyEl.innerHTML = `
-      <div class="glass-panel" style="padding:2rem;">
-        <p>This is the content for <strong>${title}</strong>. In this lesson, we will explore the key pillars of modern technology and how AI accelerates our understanding.</p>
-        <div style="background:rgba(0,0,0,0.3); height:300px; border-radius:12px; margin-top:2rem; display:flex; align-items:center; justify-content:center;">
-          <i class="fa-solid fa-play-circle" style="font-size:4rem; opacity:0.5;"></i>
-          <span style="margin-left:1rem;">Video Lesson Placeholder</span>
-        </div>
-      </div>
-    `;
-  }
-  
-  // Highlight active lesson
-  document.querySelectorAll('.lesson-item').forEach(li => {
-    li.classList.remove('active');
-    if (li.textContent.includes(title)) li.classList.add('active');
-  });
-};
-
-document.getElementById('start-learning-btn')?.addEventListener('click', () => {
-  if (!currentUser) {
-    els.authModal.classList.add('show');
-    els.authModal.classList.remove('hidden');
-  } else {
-    switchView('courses');
-  }
-});
-
-// Initial setup
-setupCourseListeners();
