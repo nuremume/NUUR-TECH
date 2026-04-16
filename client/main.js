@@ -1,4 +1,4 @@
-const API_URL = 'http://localhost:5002/api';
+// Removed API_URL explicitly since window.nuurAPI handles it
 
 // --- State ---
 let currentUser = JSON.parse(localStorage.getItem('nuurUser') || 'null');
@@ -14,12 +14,46 @@ document.addEventListener('DOMContentLoaded', () => {
   } else {
     navigate('home');
   }
+
+  // Bind lesson form submit since DOMContentLoaded is the outer wrapper here too
+  const lessonForm = document.getElementById('add-lesson-form');
+  if (lessonForm) {
+    lessonForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try {
+        const courseId = document.getElementById('lesson-course-id').value;
+        const formData = new FormData();
+        formData.append('title', document.getElementById('lesson-title').value);
+        formData.append('content', document.getElementById('lesson-content').value);
+        const vidUrl = document.getElementById('lesson-video-url').value;
+        if (vidUrl) formData.append('videoUrl', vidUrl);
+        const duration = document.getElementById('lesson-duration').value;
+        if (duration) formData.append('duration', duration);
+        
+        const fileInput = document.getElementById('lesson-media');
+        if (fileInput.files[0]) {
+          formData.append('mediaFile', fileInput.files[0]);
+        }
+
+        await window.nuurAPI.instructor.addLesson(courseId, formData);
+        showToast('Lesson uploaded successfully!');
+        closeLessonModal();
+        if (typeof loadInstructorCourses === 'function') loadInstructorCourses();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+  }
 });
 
 // --- SPA Navigation ---
 function navigate(viewId) {
   document.querySelectorAll('.view-section').forEach(sec => sec.classList.remove('active'));
   document.getElementById(`view-${viewId}`).classList.add('active');
+  
+  if (viewId === 'courses') {
+    loadCourseCatalog();
+  }
 }
 
 function updateNavUI() {
@@ -38,11 +72,18 @@ function updateNavUI() {
     
     // Admin specific nav
     if (currentUser.role === 'admin') navDash.innerText = 'Admin Panel';
+    
+    // AI widget
+    document.getElementById('ai-chat-toggle-btn').classList.remove('hidden');
   } else {
     authActions.classList.remove('hidden');
     userActions.classList.add('hidden');
     navDash.classList.add('hidden');
     navCourses.classList.add('hidden');
+    
+    // hide AI widget
+    document.getElementById('ai-chat-toggle-btn').classList.add('hidden');
+    document.getElementById('ai-chat-widget').classList.add('hidden');
   }
 }
 
@@ -88,14 +129,21 @@ function setRegistrationRole(role) {
 document.getElementById('register-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   
+  const submitBtn = e.target.querySelector('button[type="submit"]');
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const emailVal = document.getElementById('reg-email').value;
   const password = document.getElementById('reg-password').value;
   const confirm = document.getElementById('reg-confirm').value;
+  
+  if (!emailRegex.test(emailVal)) return showToast('Invalid email format', 'error');
+  if (password.length < 6) return showToast('Password must be at least 6 characters', 'error');
   if (password !== confirm) return showToast('Passwords do not match', 'error');
 
-  const endpoint = currentRoleRegistration === 'instructor' ? '/auth/register-instructor' : '/auth/register-student';
-  
+  submitBtn.disabled = true;
+  submitBtn.innerText = 'Processing...';
+
   try {
-    let response;
+    let responseData;
     
     if (currentRoleRegistration === 'instructor') {
       const formData = new FormData();
@@ -108,32 +156,23 @@ document.getElementById('register-form').addEventListener('submit', async (e) =>
       formData.append('cvFile', document.getElementById('reg-cv').files[0]);
       formData.append('educationDoc', document.getElementById('reg-education').files[0]);
 
-      response = await fetch(`${API_URL}${endpoint}`, {
-        method: 'POST',
-        body: formData
-      });
+      responseData = await window.nuurAPI.auth.registerInstructor(formData);
+
     } else {
-      response = await fetch(`${API_URL}${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fullName: document.getElementById('reg-name').value,
-          username: document.getElementById('reg-username').value,
-          email: document.getElementById('reg-email').value,
-          phone: document.getElementById('reg-phone').value,
-          dob: document.getElementById('reg-dob').value,
-          password: password,
-        })
+      responseData = await window.nuurAPI.auth.registerStudent({
+        fullName: document.getElementById('reg-name').value,
+        username: document.getElementById('reg-username').value,
+        email: document.getElementById('reg-email').value,
+        phone: document.getElementById('reg-phone').value,
+        dob: document.getElementById('reg-dob').value,
+        password: password,
       });
     }
-
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.message || 'Registration failed');
 
     showToast('Registration successful! Accessing Grid...');
     
     if (currentRoleRegistration === 'student') {
-      loginUser(data); 
+      loginUser(responseData); 
     } else {
       showToast('Instructors must await Admin approval before accessing dashboard.', 'success');
       setTimeout(() => navigate('login'), 2000);
@@ -141,28 +180,31 @@ document.getElementById('register-form').addEventListener('submit', async (e) =>
     
   } catch (err) {
     showToast(err.message, 'error');
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.innerText = 'Sign Up';
   }
 });
 
 document.getElementById('login-form').addEventListener('submit', async (e) => {
   e.preventDefault();
+  const submitBtn = e.target.querySelector('button[type="submit"]');
+  submitBtn.disabled = true;
+  submitBtn.innerText = 'Authenticating...';
+
   try {
     const identifier = document.getElementById('login-identifier').value;
     const password = document.getElementById('login-password').value;
 
-    const response = await fetch(`${API_URL}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identifier, password })
-    });
-
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.message || 'Login failed');
+    const data = await window.nuurAPI.auth.login(identifier, password);
 
     showToast('Login successful!');
     loginUser(data);
   } catch (err) {
     showToast(err.message, 'error');
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.innerText = 'Sign In';
   }
 });
 
@@ -214,42 +256,238 @@ function populateDashboard() {
       `;
     } else {
       dashContent.innerHTML = `
-        <div class="card">
+        <div class="card" id="instructor-modules-card">
           <h3>My Modules</h3>
-          <p>You have published 0 courses.</p>
-          <button class="btn-neon mt-2">Initialize New Course</button>
+          <p>Loading your courses...</p>
         </div>
         <div class="card">
-          <h3>Student Analytics</h3>
-          <p>Data streams offline.</p>
+          <h3>Initialize New Course</h3>
+          <form id="create-course-form" style="display:flex; flex-direction:column; gap:10px; margin-top:10px;">
+            <input type="text" id="course-title" placeholder="Course Title" required class="full-width" style="padding:0.5rem; background:#000; border:1px solid var(--neon-cyan); color:#fff;">
+            <textarea id="course-desc" placeholder="Course Description" required class="full-width" style="padding:0.5rem; background:#000; border:1px solid var(--neon-cyan); color:#fff;"></textarea>
+            <input type="text" id="course-tags" placeholder="Tags (comma separated)" class="full-width" style="padding:0.5rem; background:#000; border:1px solid var(--neon-cyan); color:#fff;">
+            <button type="submit" class="btn-neon mt-2">Initialize Course</button>
+          </form>
         </div>
       `;
+      
+      // Fetch and Display Courses
+      loadInstructorCourses();
+
+      // Course Creation Handler
+      document.getElementById('create-course-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        try {
+          const title = document.getElementById('course-title').value;
+          const description = document.getElementById('course-desc').value;
+          const tags = document.getElementById('course-tags').value.split(',').map(t => t.trim());
+          await window.nuurAPI.instructor.createCourse({ title, description, tags, isPublished: true });
+          showToast('Course Created Successfully!');
+          loadInstructorCourses();
+        } catch(err) {
+          showToast(err.message, 'error');
+        }
+      });
     }
   }
 }
 
-// --- Admin Controls ---
+// --- Instructor Specific Logic ---
+async function loadInstructorCourses() {
+  const card = document.getElementById('instructor-modules-card');
+  if (!card) return;
+  card.innerHTML = `<h3>My Modules</h3><div class="spinner"></div>`;
+  try {
+    const courses = await window.nuurAPI.instructor.getMyCourses();
+    const listHtml = courses.length ? courses.map(c => `
+      <div style="border-top:1px solid rgba(0,243,255,0.2); padding-top:15px; margin-top:15px;">
+        <h4 style="color:var(--neon-purple);">${c.title}</h4>
+        <p style="font-size: 0.8rem; color: var(--text-muted);">${c.lessons.length} lessons</p>
+        <button class="btn-purple" style="font-size:0.7rem; padding:0.4rem 0.8rem; margin-top:10px;" onclick="showAddLessonModal('${c._id}')">Add Lesson</button>
+      </div>
+    `).join('') : '<div class="empty-state">No modules initialized. Publish your first course today!</div>';
+    card.innerHTML = `<h3>My Modules</h3>${listHtml}`;
+  } catch(err) {
+    card.innerHTML = `<h3>My Modules</h3><p style="color:#ff3366">Error loading courses: ${err.message}</p>`;
+  }
+}
+
+function showAddLessonModal(courseId) {
+  document.getElementById('lesson-course-id').value = courseId;
+  document.getElementById('add-lesson-form').reset();
+  document.getElementById('add-lesson-modal').classList.add('visible');
+}
+
+function closeLessonModal() {
+  document.getElementById('add-lesson-modal').classList.remove('visible');
+}
+
+// Global scope registration due to inline onclick bindings
+window.showAddLessonModal = showAddLessonModal;
+window.closeLessonModal = closeLessonModal;
+
+// --- Student & Course Logic ---
+let currentViewingCourse = null;
+
+async function loadCourseCatalog() {
+  const grid = document.getElementById('courses-grid');
+  grid.innerHTML = '<div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div>';
+  try {
+    const courses = await window.nuurAPI.course.getAll();
+    if (courses.length === 0) {
+      grid.innerHTML = '<div class="empty-state"><h3>Nothing here yet</h3><p>The network administrators have not published any courses.</p></div>';
+      return;
+    }
+
+    let html = '';
+    courses.forEach(c => {
+      html += `
+        <div class="card">
+          <h3 style="color:var(--neon-cyan)">${c.title}</h3>
+          <p style="margin-bottom:1rem">${c.description}</p>
+          <p style="font-size:0.8rem; color: #888;">Instructor: ${c.instructor ? c.instructor.fullName : 'Unknown'} | Lessons: ${c.lessons ? c.lessons.length : 0}</p>
+          <button class="btn-neon mt-2" onclick='openCoursePlayer(${JSON.stringify(c).replace(/'/g, "&apos;")})'>Access Course</button>
+        </div>
+      `;
+    });
+    grid.innerHTML = html;
+    
+    // Update dashboard counter if student
+    if (currentUser && currentUser.role === 'student') {
+      const dbWelcome = document.getElementById('dashboard-content');
+      if (dbWelcome && dbWelcome.innerHTML.includes('Enrolled Courses')) {
+         const pTag = dbWelcome.querySelector('.card p');
+         if (pTag) {
+            pTag.innerText = `You are active in ${courses.length} modules.`;
+         }
+      }
+    }
+  } catch (err) {
+    grid.innerHTML = `<div class="empty-state" style="border-color:#ff3366; color:#ff3366;">Error: ${err.message}</div>`;
+  }
+}
+
+function openCoursePlayer(course) {
+  currentViewingCourse = course;
+  navigate('lesson-player');
+  
+  document.getElementById('player-course-title').innerText = course.title;
+  document.getElementById('player-lesson-title').innerText = 'Select a module to begin';
+  document.getElementById('player-video-container').innerHTML = '<span style="color: var(--text-muted)">Awaiting Selection</span>';
+  document.getElementById('player-text-content').innerHTML = course.description;
+  
+  const listEl = document.getElementById('player-lesson-list');
+  if (!course.lessons || course.lessons.length === 0) {
+    listEl.innerHTML = '<li>No modules initialized yet.</li>';
+    return;
+  }
+  
+  listEl.innerHTML = course.lessons.map((lesson, idx) => `
+    <li>
+      <button class="btn-purple full-width" style="text-align:left;" onclick="loadLesson(${idx})">
+        ${idx + 1}. ${lesson.title}
+      </button>
+    </li>
+  `).join('');
+}
+
+function loadLesson(index) {
+  if (!currentViewingCourse) return;
+  const lesson = currentViewingCourse.lessons[index];
+  document.getElementById('player-lesson-title').innerText = lesson.title;
+  
+  // Render Video or Media
+  const vidContainer = document.getElementById('player-video-container');
+  if (lesson.videoUrl && (lesson.videoUrl.includes('youtube') || lesson.videoUrl.includes('youtu.be'))) {
+      const ytId = lesson.videoUrl.split('v=')[1] || lesson.videoUrl.split('/').pop();
+      vidContainer.innerHTML = `<iframe width="100%" height="100%" src="https://www.youtube.com/embed/${ytId}" frameborder="0" allowfullscreen></iframe>`;
+  } else if (lesson.videoUrl) {
+      if (lesson.videoUrl.endsWith('.pdf')) {
+          vidContainer.innerHTML = `<iframe width="100%" height="100%" src="${lesson.videoUrl}"></iframe>`;
+      } else {
+          vidContainer.innerHTML = `<video width="100%" height="100%" controls><source src="${lesson.videoUrl}" type="video/mp4">Your browser does not support video.</video>`;
+      }
+  } else {
+      vidContainer.innerHTML = '<span style="color: var(--text-muted)">No media attached to this module.</span>';
+  }
+  
+  document.getElementById('player-text-content').innerHTML = lesson.content || 'No text content available.';
+}
+
+// Global binds
+window.openCoursePlayer = openCoursePlayer;
+window.loadLesson = loadLesson;
+
+// --- AI Chat Logic ---
+let isAIChatOpen = false;
+
+function toggleAIChat() {
+   const widget = document.getElementById('ai-chat-widget');
+   const btn = document.getElementById('ai-chat-toggle-btn');
+   if (isAIChatOpen) {
+      widget.classList.add('hidden');
+      btn.style.display = 'flex';
+   } else {
+      widget.classList.remove('hidden');
+      btn.style.display = 'none';
+   }
+   isAIChatOpen = !isAIChatOpen;
+}
+
+function handleAIChatKeyPress(e) {
+  if (e.key === 'Enter') sendAIChat();
+}
+
+async function sendAIChat() {
+  const input = document.getElementById('ai-chat-input');
+  const message = input.value.trim();
+  if(!message) return;
+  
+  const historyBox = document.getElementById('ai-chat-history');
+  
+  historyBox.innerHTML += `<div style="align-self:flex-end; background:var(--neon-purple); color:#fff; padding:8px; border-radius:8px; max-width:80%;">User: ${message}</div>`;
+  input.value = '';
+  historyBox.scrollTop = historyBox.scrollHeight;
+  
+  try {
+     const topic = currentViewingCourse ? currentViewingCourse.title : 'General Tutoring';
+     const resData = await window.nuurAPI.ai.chat(message, topic);
+     
+     const responseText = resData.response || "No response received.";
+     const contextText = resData.ragContextUsed ? ' <small style="color:#0f0;">*(Context Applied)*</small>' : '';
+     
+     historyBox.innerHTML += `<div style="align-self:flex-start; background:#333; color:var(--neon-cyan); padding:8px; border-radius:8px; max-width:80%;">AI: ${responseText}${contextText}</div>`;
+  } catch (err) {
+     historyBox.innerHTML += `<div style="align-self:flex-start; background:#ff3366; color:#fff; padding:8px; border-radius:8px; max-width:80%;">System Error: ${err.message}</div>`;
+  }
+  historyBox.scrollTop = historyBox.scrollHeight;
+}
+
+window.toggleAIChat = toggleAIChat;
+window.handleAIChatKeyPress = handleAIChatKeyPress;
+window.sendAIChat = sendAIChat;
 async function fetchAdminUsers() {
   if (!currentUser || currentUser.role !== 'admin') return;
   
   try {
-    const res = await fetch(`${API_URL}/admin/users`, {
-      headers: { 'Authorization': `Bearer ${currentUser.token}` }
-    });
-    const users = await res.json();
+    const users = await window.nuurAPI.admin.getUsers();
     
-    let html = '';
+    let html = '<table class="admin-table"><thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Role</th><th>Status</th></tr></thead><tbody>';
     users.forEach(u => {
+      const statusStr = u.role === 'instructor' ? (u.isApproved ? '<span style="color:#0f0">Approved</span>' : '<span style="color:#ffcc00">Pending</span>') : '-';
       html += `
-      <div class="card">
-        <h3>${u.fullName}</h3>
-        <p>ID: ${u.nuurId || 'N/A'}</p>
-        <p>Role: ${u.role}</p>
-        <p>Email: ${u.email}</p>
-      </div>`;
+      <tr>
+        <td style="font-family: var(--font-mono); font-size:0.8rem;">${u.nuurId || 'N/A'}</td>
+        <td>${u.fullName}</td>
+        <td>${u.email}</td>
+        <td style="text-transform:capitalize; color:var(--neon-purple); font-weight:bold;">${u.role}</td>
+        <td>${statusStr}</td>
+      </tr>`;
     });
+    html += '</tbody></table>';
     
     document.getElementById('admin-data-grid').innerHTML = html;
+    document.getElementById('admin-data-grid').className = ""; // Remove grid class so it spans full width
   } catch (err) {
     showToast(err.message, 'error');
   }
@@ -259,28 +497,30 @@ async function fetchPendingInstructors() {
   if (!currentUser || currentUser.role !== 'admin') return;
   
   try {
-    const res = await fetch(`${API_URL}/admin/users`, {
-      headers: { 'Authorization': `Bearer ${currentUser.token}` }
-    });
-    let users = await res.json();
-    users = users.filter(u => u.role === 'instructor' && !u.isApproved);
+    const allUsers = await window.nuurAPI.admin.getUsers();
+    const pendingUsers = allUsers.filter(u => u.role === 'instructor' && !u.isApproved);
     
-    if (users.length === 0) {
-      document.getElementById('admin-data-grid').innerHTML = '<p>No pending approvals.</p>';
+    if (pendingUsers.length === 0) {
+      document.getElementById('admin-data-grid').innerHTML = '<div style="padding:2rem; text-align:center; color:var(--text-muted); background:var(--bg-panel); border-radius:8px;">No pending instructor approvals.</div>';
       return;
     }
 
-    let html = '';
-    users.forEach(u => {
+    let html = '<table class="admin-table"><thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Action</th></tr></thead><tbody>';
+    pendingUsers.forEach(u => {
       html += `
-      <div class="card">
-        <h3>${u.fullName}</h3>
-        <p>Email: ${u.email}</p>
-        <button class="btn-neon mt-2" onclick="approveInstructor('${u._id}')">Approve Access</button>
-      </div>`;
+      <tr>
+        <td style="font-family: var(--font-mono); font-size:0.8rem;">${u.nuurId || 'N/A'}</td>
+        <td>${u.fullName}</td>
+        <td>${u.email}</td>
+        <td>
+          <button class="btn-neon" style="padding:0.4rem 1rem; font-size:0.8rem;" onclick="approveInstructor('${u._id}')">Approve Access</button>
+        </td>
+      </tr>`;
     });
+    html += '</tbody></table>';
     
     document.getElementById('admin-data-grid').innerHTML = html;
+    document.getElementById('admin-data-grid').className = ""; // Remove grid class
   } catch (err) {
     showToast(err.message, 'error');
   }
@@ -288,13 +528,9 @@ async function fetchPendingInstructors() {
 
 async function approveInstructor(id) {
   try {
-    const res = await fetch(`${API_URL}/admin/instructors/${id}/approve`, {
-      method: 'PUT',
-      headers: { 'Authorization': `Bearer ${currentUser.token}` }
-    });
-    if (!res.ok) throw new Error('Approval failed');
-    showToast('Instructor Access Granted.');
-    fetchPendingInstructors();
+    await window.nuurAPI.admin.approveInstructor(id);
+    showToast('Instructor Access Granted.', 'success');
+    fetchPendingInstructors(); // Refresh the list
   } catch (err) {
     showToast(err.message, 'error');
   }

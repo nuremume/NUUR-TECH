@@ -21,10 +21,10 @@ const { MongoMemoryServer } = require('mongodb-memory-server');
 async function connectDB() {
   try {
     let uri = process.env.MONGO_URI;
-    if (uri && uri.includes('localhost')) {
+    if (!uri) {
       const mongoServer = await MongoMemoryServer.create();
       uri = mongoServer.getUri();
-      console.log(`[DB] Spinning up local Memory Server...`);
+      console.log(`[DB] No MONGO_URI provided. Spinning up local Memory Server fallback...`);
     }
     await mongoose.connect(uri);
     console.log(`[DB] Connected to MongoDB at ${uri}`);
@@ -46,6 +46,9 @@ app.use('/api/admin', adminRoutes);
 app.get('/', (req, res) => {
   res.send('NUUR TECH Backend API is running');
 });
+
+const errorHandler = require('./middleware/errorHandler');
+app.use(errorHandler);
 
 const server = http.createServer(app);
 
